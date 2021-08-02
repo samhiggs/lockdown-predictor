@@ -13,8 +13,14 @@ from bs4 import BeautifulSoup
 from pytrends.request import TrendReq
 from pytrends import dailydata
 
+from sagemaker.s3 import S3Downloader, S3Uploader
+
 class DataLoader:
     """Gathers the data from various sources"""
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        
     ###### NSW CASE DATA
     def _get_data_nsw(self, resource_id: str, counts_col: str = None) -> pd.DataFrame:
         """Retrieve json data object and convert to pandas dataframe"""
@@ -46,9 +52,10 @@ class DataLoader:
     
     def get_case_data(self, from_csv: bool = True) -> pd.DataFrame:
         """Loads data from data nsw and in future, other data sources."""
-    
+        
+        cached_path = 'data/case_data.csv'
         if from_csv:
-            return self._load_case_data()
+            return self._load_data(cached_path)    
     
         # resource IDS for data nsw APIs 
         resource_ids = {
@@ -59,12 +66,7 @@ class DataLoader:
         df = self._get_data_nsw(resource_ids['cases']).to_frame()
 
         print(f'{df.index.min()} - {df.index.max()}')
-        df.to_csv('data/case_data.csv')
-        return df
-
-    def _load_case_data(self) -> pd.DataFrame:
-        df = pd.read_csv('data/case_data.csv')
-        df.set_index('date', inplace=True)
+        df.to_csv(cached_path)
         return df
     
     def _clean_references(self, x: str) -> str:
@@ -78,12 +80,89 @@ class DataLoader:
             split_str.append(None)
         return split_str
     
+    ####### Vaccinations
+    def get_vaccinations_data(self, from_csv: bool = True) -> pd.DataFrame:
+        """Gets Australian vaccination rate from Our world in data NOT WORKING"""
+        
+        cached_path = 'data/aus_vaccination_data.csv'
+        
+        try:
+            return self._load_data(cached_path)
+        except:
+            self.logger.warning(f'Unable to load file {cached_path}')
+            
+        url = 'https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv'
+        df = pd.read_csv(url)
+        df = [df['location'] == 'Australia']
+        df[['date', 'people_vaccinated_per_hundred', 'people_fully_vaccinated_per_hundred', 'daily_vaccinations_per_million']]
+        df.date = pd.to_datetime(df.date)
+        df.set_index('date', inplace=True)
+        df.to_csv(cached_path)
+        return df
+    
+    ######## get restructions for all oecd countries
+    def _get_oecd_countries(self) -> list:
+        try:
+            url_oecd = 'https://www.oecd.org/about/document/ratification-oecd-convention.htm'
+            dfs = pd.read_html(url_oecd)
+            oecd_countries = dfs[1].iloc[:,1].tolist()[1:]
+            oecd_countries = [c.capitalize() for c in oecd_countries]
+        except Exception as e:
+            print(e)
+
+        return oecd_countries
+
+    def _load_oecd_countries(self) -> list:
+        oecd_countries = []
+        try:
+            with open('data/oecd_countries.txt', 'r') as f:
+                for line in f:
+                    oecd_countries.append(line.strip())
+        except Exception as e:
+            print(e)
+
+        return oecd_countries
+
+    def get_oecd_restrictions(self, from_csv: bool = True) -> pd.DataFrame:
+        """
+        Data can be downloaded from ourworldindata, haven't created endpoint for it yet
+        https://ourworldindata.org/covid-stay-home-restrictions
+        """
+
+        df = pd.read_csv('data/global_restriction_orders.csv')
+        try:
+            oecd_countries = self._load_oecd_countries()
+        except Exception as e:
+            print(e)
+            oecd_countries = self._get_oecd_countries()
+
+        df = df[df.Entity.isin(oecd_countries)]
+        df.rename(columns={'Day': 'date'}, inplace=True)
+        df['date'] = pd.to_datetime(df.date)
+        df.set_index('date', inplace=True)
+        df.columns = ['country', 'country_code', 'stay_home_requirements']
+        df = df.iloc[:,[0,2]]
+        df = df.pivot_table(index='date', columns='country', values='stay_home_requirements').reset_index()
+        # oecd_wide = oecd_wide.drop(columns='country')
+        # oecd_wide.set_index('date', inplace=True)
+        df = df.ffill()
+        df.head()
+        df.to_csv('data/global_restrictions.csv', index=False)
+        return df
+
+    def _load_oecd_restrictions(self) -> pd.DataFrame:
+        df = pd.read_csv('data/global_restrictions.csv')
+    #     df.set_index('date', inplace=True)
+        return df
+    
+    
     ####### APH DATA
     def get_news_data(self, from_csv: bool = True) -> pd.DataFrame:
         """Gathers relevant text data from government site"""
 
+        cached_path = 'data/nsw_announcements.csv'
         if from_csv:
-            return self. _load_news_data()
+            return self._load_data(cached_path)
 
         url = 'https://www.aph.gov.au/About_Parliament/Parliamentary_Departments/Parliamentary_Library/pubs/rp/rp2021/Chronologies/COVID-19StateTerritoryGovernmentAnnouncements'
         res = requests.get(url)
@@ -111,40 +190,34 @@ class DataLoader:
         references_df.columns = ['source', 'theme', 'medium', 'date_released']
         df = pd.concat([df.drop(columns='references'), references_df], axis=1, join='inner')
         df.set_index('date', inplace=True)
-        df.to_csv('data/nsw_announcements.csv')
+        df.to_csv(cached_path)
         assert len(df) > 5
-        return df
-
-    def _load_news_data(self) -> pd.DataFrame:
-        df = pd.read_csv('data/nsw_announcements.csv')
-        df.set_index('date', inplace=True)
         return df
     
     ######## GOOGLE TREND API
     def get_google_trend_data(self, from_csv: bool = True, to_month: int = 7) -> pd.DataFrame:
         """Extract google trend data about the lockdown"""
     
+        cached_path = 'data/google_trend_covid.csv'
         if from_csv:
-            return self._load_google_trend_data()
+            return self._load_data(cached_path)
 
         print('This will take a minute or two...')
         df = dailydata.get_daily_data('covid', 2020, 2, 2021, to_month, geo = 'AU-NSW')
-        df.to_csv('data/google_trend_covid.csv')
+        df.to_csv(cached_path)
         print('data saved')
         return df
 
-    def _load_google_trend_data(self) -> pd.DataFrame:
-        df = pd.read_csv('data/google_trend_covid.csv')
-        df.set_index('date', inplace=True)
-        return df
-    
+
     def get_restrictions_data(self,from_csv: bool = True) -> pd.DataFrame:
         """Restrictions in place from 
             https://www.theguardian.com/world/2020/may/02/australias-coronavirus-lockdown-the-first-50-days
             https://deborahalupton.medium.com/timeline-of-covid-19-in-australia-1f7df6ca5f23
         """
+        cached_path = 'data/restrictions.csv'
         if from_csv:
-            return self._load_restrictions_data()
+            return self._load_data(cached_path)
+
 
         lockdown_dates_nsw = [
             ['2020-03-16', 500], # gatherings over 500 forbidden
@@ -169,11 +242,12 @@ class DataLoader:
 
         # Invert the restriction value to make higher = worse
         df['severity'] = df.restriction.apply(lambda x: int((1/x)*100))
-        df.to_csv('data/restrictions.csv')
+        df.to_csv(cached_path)
         return df
-
-    def _load_restrictions_data(self) -> pd.DataFrame:
-        df = pd.read_csv('data/restrictions.csv')
+    
+    def _load_data(self, path) -> pd.DataFrame:
+        """Loads data that is """
+        df = pd.read_csv(path)
         df.set_index('date', inplace=True)
         return df
     
@@ -184,12 +258,22 @@ class DataLoader:
         """
 
         cases_df = self.get_case_data(from_csv)
-        print('cases data loaded')
+        self.logger.info('cases data loaded')
+#         vac_df = self.get_vaccinations_data(from_csv)
+#         self.logger.info('vaccination data loaded')
         news_df = self.get_news_data(from_csv)
-        print('news data loaded')
+        self.logger.info('news data loaded')
         trend_df = self.get_google_trend_data(from_csv)
-        print('google trend data loaded')
+        self.logger.info('google trend data loaded')
         restric_df = self.get_restrictions_data(from_csv)
-        print('restrictions data loaded')
+        self.logger.info('restrictions data loaded')
+        # This differs from restric_df as restric_df is manually compiled
+        oecd_restric_df = self.get_oecd_restrictions(from_csv)
+        self.logger.info('oecd restrictions data loaded')
+        # TODO: Write tables to S3
+#         s3_uri = 's3://projects/lockdown-predictor/'
+#         data_uri = s3_uri + 'data/' 
+#         # S3Downloader().download(data_uri, 'data/')
 
-        return cases_df, news_df, trend_df, restric_df
+#         S3Uploader().upload(data_uri, 'data/')
+        return cases_df, news_df, trend_df, restric_df, oecd_restric_df
