@@ -22,6 +22,11 @@ class DataLoader:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
+        
+        self.name = 'simple_dataloader'
+        self.logger.info(f'Initialised {self.name}')
+        
+        # Paths
         self.raw_path = Path('data/raw')
         self.paths = {
             'case_data': self.raw_path / 'case_data.csv',
@@ -140,8 +145,16 @@ class DataLoader:
         Data can be downloaded from ourworldindata, haven't created endpoint for it yet
         https://ourworldindata.org/covid-stay-home-restrictions
         """
-
-        df = pd.read_csv('data/global_restriction_orders.csv')
+        
+        cached_path = self.paths['global_restrictions']
+        
+        try:
+            return self._load_data(cached_path)
+        except:
+            self.logger.warning(f'Unable to load file {cached_path}')
+        
+        df = pd.read_csv('data/raw/global_restriction_orders.csv')
+        
         try:
             oecd_countries = self._load_oecd_countries()
         except Exception as e:
@@ -159,20 +172,19 @@ class DataLoader:
         # oecd_wide.set_index('date', inplace=True)
         df = df.ffill()
         df.head()
-        df.to_csv('data/global_restrictions.csv', index=False)
+        df.to_csv(cached_path, index=False)
         return df
 
-    def _load_oecd_restrictions(self) -> pd.DataFrame:
-        df = pd.read_csv('data/global_restrictions.csv')
+    def _load_oecd_restrictions(self, path) -> pd.DataFrame:
+        df = pd.read_csv(path)
     #     df.set_index('date', inplace=True)
         return df
-    
     
     ####### APH DATA
     def get_news_data(self, from_csv: bool = True) -> pd.DataFrame:
         """Gathers relevant text data from government site"""
 
-        cached_path = self.paths['au_vaccinations']
+        cached_path = self.paths['nsw_announcements']
         if from_csv:
             return self._load_data(cached_path)
 
@@ -219,7 +231,6 @@ class DataLoader:
         df.to_csv(cached_path)
         print('data saved')
         return df
-
 
     def get_restrictions_data(self,from_csv: bool = True) -> pd.DataFrame:
         """Restrictions in place from 

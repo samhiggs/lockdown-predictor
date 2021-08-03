@@ -20,7 +20,9 @@ class DataCleanerSimple(DataCleaner):
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
-        self.logger.info('hello from dataset cleaner')
+        self.name = 'simple_cleaner'
+        self.logger.info(f'initialised {self.name}')
         
     def clean(self, df: pd.DataFrame):
-        self.logger.info('cleaning')
+        self.logger.info(f'{self.name} completed cleaning')
+        return df

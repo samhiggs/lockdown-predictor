@@ -1,0 +1,9 @@
+beautifulsoup4
+matplotlib
+pandas
+pandas
+plotly
+pytrends
+pandera
+scikit-learn
+torch
