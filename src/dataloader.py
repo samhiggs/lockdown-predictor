@@ -8,20 +8,52 @@ from functools import reduce
 import pandas as pd
 import numpy as np
 
+# Scraping
 from bs4 import BeautifulSoup
+
 # Google unofficial API
 from pytrends.request import TrendReq
 from pytrends import dailydata
 
-from sagemaker.s3 import S3Downloader, S3Uploader
+
 
 class DataLoader:
     """Gathers the data from various sources"""
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
+        self.raw_path = Path('data/raw')
+        self.paths = {
+            'case_data': self.raw_path / 'case_data.csv',
+            'global_restrictions': self.raw_path / 'global_restrictions.csv',
+            'au_vaccinations': self.raw_path / 'aus_vaccination_data.csv',
+            'oecd_countries': self.raw_path / 'oecd_countries.txt',
+            'nsw_announcements': self.raw_path / 'nsw_announcements.csv',
+            'google_trend_covid': self.raw_path / 'google_trend_covid.csv',
+            'handmade_restrictions': self.raw_path / 'restrictions.csv'
+        }
         
-    ###### NSW CASE DATA
+    ###### NSW Case Data
+    
+    def get_case_data(self, from_csv: bool = True) -> pd.DataFrame:
+        """Loads data from data nsw and in future, other data sources."""
+        
+        cached_path = self.paths['case_data']
+        if from_csv:
+            return self._load_data(cached_path)    
+    
+        # resource IDS for data nsw APIs 
+        resource_ids = {
+            'testing': '945c6204-272a-4cad-8e33-dde791f5059a',
+            'cases': '21304414-1ff1-4243-a5d2-f52778048b29'
+        }
+
+        df = self._get_data_nsw(resource_ids['cases']).to_frame()
+
+        print(f'{df.index.min()} - {df.index.max()}')
+        df.to_csv(cached_path)
+        return df
+    
     def _get_data_nsw(self, resource_id: str, counts_col: str = None) -> pd.DataFrame:
         """Retrieve json data object and convert to pandas dataframe"""
         # Query API
@@ -49,26 +81,6 @@ class DataLoader:
 
         return df
     
-    
-    def get_case_data(self, from_csv: bool = True) -> pd.DataFrame:
-        """Loads data from data nsw and in future, other data sources."""
-        
-        cached_path = 'data/case_data.csv'
-        if from_csv:
-            return self._load_data(cached_path)    
-    
-        # resource IDS for data nsw APIs 
-        resource_ids = {
-            'testing': '945c6204-272a-4cad-8e33-dde791f5059a',
-            'cases': '21304414-1ff1-4243-a5d2-f52778048b29'
-        }
-
-        df = self._get_data_nsw(resource_ids['cases']).to_frame()
-
-        print(f'{df.index.min()} - {df.index.max()}')
-        df.to_csv(cached_path)
-        return df
-    
     def _clean_references(self, x: str) -> str:
         """Converts referencescolumns from aph into multiple columns"""
         split_str = ' '.join(x.split()).split(',')
@@ -84,7 +96,7 @@ class DataLoader:
     def get_vaccinations_data(self, from_csv: bool = True) -> pd.DataFrame:
         """Gets Australian vaccination rate from Our world in data NOT WORKING"""
         
-        cached_path = 'data/aus_vaccination_data.csv'
+        cached_path = self.paths['au_vaccinations']
         
         try:
             return self._load_data(cached_path)
@@ -160,7 +172,7 @@ class DataLoader:
     def get_news_data(self, from_csv: bool = True) -> pd.DataFrame:
         """Gathers relevant text data from government site"""
 
-        cached_path = 'data/nsw_announcements.csv'
+        cached_path = self.paths['au_vaccinations']
         if from_csv:
             return self._load_data(cached_path)
 
@@ -198,7 +210,7 @@ class DataLoader:
     def get_google_trend_data(self, from_csv: bool = True, to_month: int = 7) -> pd.DataFrame:
         """Extract google trend data about the lockdown"""
     
-        cached_path = 'data/google_trend_covid.csv'
+        cached_path = self.paths['google_trend_covid']
         if from_csv:
             return self._load_data(cached_path)
 
@@ -214,7 +226,8 @@ class DataLoader:
             https://www.theguardian.com/world/2020/may/02/australias-coronavirus-lockdown-the-first-50-days
             https://deborahalupton.medium.com/timeline-of-covid-19-in-australia-1f7df6ca5f23
         """
-        cached_path = 'data/restrictions.csv'
+        
+        cached_path = self.paths['handmade_restrictions']
         if from_csv:
             return self._load_data(cached_path)
 

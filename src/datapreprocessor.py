@@ -27,6 +27,6 @@ class DataPreprocessorSimple(DataPreprocessor):
     def clean(self, df: pd.DataFrame):
         self.logger.info('cleaning')
         
-    def _text_columns(self, df, pd.DataFrame, cols: list) -> pd.DataFrame:
+    def _text_columns(self, df: pd.DataFrame, cols: list) -> pd.DataFrame:
         pass
     
